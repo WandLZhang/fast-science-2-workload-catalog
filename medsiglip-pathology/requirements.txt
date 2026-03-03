@@ -1,0 +1,5 @@
+google-cloud-storage
+google-cloud-resource-manager
+google-api-python-client
+google-auth
+google-cloud-org-policy
