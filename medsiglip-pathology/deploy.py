@@ -347,7 +347,7 @@ cat > /home/jupyter/medsiglip-workspace/MedSigLIP_Pathology_Pipeline.ipynb << 'N
       "execution_count": null,
       "metadata": {{}},
       "outputs": [],
-      "source": ["import torch\\n", "print(f\\"GPU: {{torch.cuda.get_device_name(0)}}\\")", "\\n", "print(f\\"VRAM: {{torch.cuda.get_device_properties(0).total_mem / 1e9:.1f}} GB\\")", "\\n", "assert torch.cuda.is_available(), \\"No GPU found!\\"\\n", "\\n", "PROJECT_ID = \\"{PROJECT_ID}\\"\\n", "BUCKET_NAME = \\"{BUCKET_NAME}\\""]
+      "source": ["import torch\\n", "print(f\\"GPU: {{torch.cuda.get_device_name(0)}}\\")", "\\n", "print(f\\"VRAM: {{torch.cuda.get_device_properties(0).total_memory / 1e9:.1f}} GB\\")", "\\n", "assert torch.cuda.is_available(), \\"No GPU found!\\"\\n", "\\n", "PROJECT_ID = \\"{PROJECT_ID}\\"\\n", "BUCKET_NAME = \\"{BUCKET_NAME}\\""]
     }},
     {{
       "cell_type": "markdown",
