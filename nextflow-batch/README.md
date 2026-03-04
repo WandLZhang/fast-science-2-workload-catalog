@@ -19,6 +19,41 @@ Your IT admin provides these values from the L0/L1 Terraform deployment:
 | `GCP_REGION` | Region matching L0 subnet | `cd fast/stages-aw/0-bootstrap && terraform output -json \| jq '.regions.value.primary'` |
 | `SERVICE_ACCOUNT_NAME` | SA created by L1 project factory | Look in L1's `data/projects/<name>.yaml` under `service_accounts:` — the key is the SA name |
 
+## What Your Admin Needs in the L1 Project YAML
+
+The L1 project factory YAML ([fast-science-1-researcher-lab](https://github.com/WandLZhang/fast-science-1-researcher-lab)) needs workload-specific settings for Nextflow Batch to work on a Shared VPC. These are **admin-level** — the researcher's `deploy.py` should not need org policy or host-project permissions.
+
+### Required `service_agent_subnet_iam`
+
+```yaml
+service_agent_subnet_iam:
+  "us-central1/default-primary-region":
+    - notebooks    # Workbench VM service agent
+    - compute      # Compute Engine service agent
+    - cloudbatch   # Cloud Batch service agent — creates worker VMs on the shared subnet
+```
+
+### Required `org_policies`
+
+```yaml
+org_policies:
+  compute.requireShieldedVm:
+    rules:
+      - enforce: false
+  compute.trustedImageProjects:
+    inherit_from_parent: true
+    rules:
+      - allow:
+          values:
+            - projects/batch-custom-image
+```
+
+### Required APIs
+
+Include `batch.googleapis.com` and `notebooks.googleapis.com` in the `services:` list.
+
+---
+
 ## Deploy
 
 ```bash

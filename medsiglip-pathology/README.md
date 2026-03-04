@@ -19,6 +19,37 @@ Your IT admin provides these values from the L0/L1 Terraform deployment:
 | `GCP_REGION` | Region matching L0 subnet | `cd fast/stages-aw/0-bootstrap && terraform output -json \| jq '.regions.value.primary'` |
 | `SERVICE_ACCOUNT_NAME` | SA created by L1 project factory | Look in L1's `data/projects/<name>.yaml` under `service_accounts:` — the key is the SA name (e.g., `pathology-medsiglip-0`) |
 
+## What Your Admin Needs in the L1 Project YAML
+
+The L1 project factory YAML ([fast-science-1-researcher-lab](https://github.com/WandLZhang/fast-science-1-researcher-lab)) needs workload-specific settings for GPU workbenches on a Shared VPC. These are **admin-level** — the researcher's `deploy.py` should not need org policy or host-project permissions.
+
+### Required `service_agent_subnet_iam`
+
+```yaml
+service_agent_subnet_iam:
+  "us-west1/gpu-west1":                  # GPU subnet
+    - notebooks
+    - compute
+  "us-central1/default-primary-region":  # Fallback region
+    - notebooks
+    - compute
+```
+
+### Required `org_policies`
+
+```yaml
+org_policies:
+  compute.requireShieldedVm:
+    rules:
+      - enforce: false    # NVIDIA GPU drivers conflict with Secure Boot
+```
+
+### Required APIs
+
+Include `aiplatform.googleapis.com` and `notebooks.googleapis.com` in the `services:` list.
+
+---
+
 ## Deploy
 
 ```bash
