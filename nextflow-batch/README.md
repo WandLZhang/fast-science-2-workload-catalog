@@ -28,10 +28,19 @@ The L1 project factory YAML ([fast-science-1-researcher-lab](https://github.com/
 ```yaml
 service_agent_subnet_iam:
   "us-central1/default-primary-region":
-    - notebooks    # Workbench VM service agent
-    - compute      # Compute Engine service agent
-    - cloudbatch   # Cloud Batch service agent — creates worker VMs on the shared subnet
+    - notebooks      # Workbench VM service agent
+    - compute        # Compute Engine service agent
+    - cloudbatch     # Cloud Batch service agent — creates worker VMs on the shared subnet
+    - cloudservices  # Google APIs service agent — Batch uses this to create MIG VMs
 ```
+
+If the project factory module doesn't recognize `cloudservices` as a type, grant it manually or via `network_subnet_users`:
+>
+> ```yaml
+> network_subnet_users:
+>   "us-central1/default-primary-region":
+>     - serviceAccount:<project-number>@cloudservices.gserviceaccount.com
+> ```
 
 ### Required `org_policies`
 
@@ -108,3 +117,53 @@ Workbench (n1-standard-4, private IP)
     │   └── MULTIQC → Cloud Batch job (spot VM)
     └── Results → gs://<project>-bucket/scratch/
 ```
+
+---
+
+## Admin Hints — Shared VPC Troubleshooting
+
+### Batch jobs stuck in `SCHEDULED_PENDING_FAILED`
+
+**Symptom:** Jobs go QUEUED → SCHEDULED → SCHEDULED_PENDING_FAILED → FAILED. The status event says:
+```
+CODE_GCE_PERMISSION_DENIED: Required 'compute.subnetworks.use' permission for
+'projects/<host-project>/regions/<region>/subnetworks/<subnet>'
+(when acting as '<project-number>@cloudservices.gserviceaccount.com')
+```
+
+**Cause:** Cloud Batch creates worker VMs inside a Managed Instance Group. The MIG is created by the **Google APIs service agent** (`<project-number>@cloudservices.gserviceaccount.com`), which is a different principal from the Batch service agent. This agent needs `compute.networkUser` on the Shared VPC subnet in the host project.
+
+**Fix (ad-hoc):**
+```bash
+# Get your workload project number
+PROJECT_NUMBER=$(gcloud projects describe <your-project-id> --format="value(projectNumber)")
+
+# Grant subnet IAM
+gcloud compute networks subnets add-iam-policy-binding <subnet-name> \
+  --project=<host-project> \
+  --region=<region> \
+  --member="serviceAccount:${PROJECT_NUMBER}@cloudservices.gserviceaccount.com" \
+  --role="roles/compute.networkUser"
+```
+
+**Fix (codified in L1):** Add `cloudservices` to `service_agent_subnet_iam` in the project factory YAML (see above).
+
+**Verify:** Submit a test job:
+```bash
+gcloud batch jobs submit test-fix \
+  --project=<your-project-id> --location=<region> \
+  --config=- <<< '{"taskGroups":[{"taskSpec":{"runnables":[{"script":{"text":"echo ok"}}],"computeResource":{"cpuMilli":1000,"memoryMib":512}},"taskCount":1}],"allocationPolicy":{"instances":[{"policy":{"machineType":"e2-micro","provisioningModel":"SPOT"}}],"serviceAccount":{"email":"<sa>@<project>.iam.gserviceaccount.com"},"network":{"networkInterfaces":[{"network":"projects/<host>/global/networks/prod-spoke-0","subnetwork":"projects/<host>/regions/<region>/subnetworks/<subnet>","noExternalIpAddress":true}]}},"logsPolicy":{"destination":"CLOUD_LOGGING"}}'
+```
+
+### Why this doesn't happen outside Shared VPC
+
+In standalone projects (no L0/L1), Batch VMs use the default network in the same project. The Google APIs service agent has implicit access to same-project networks. Shared VPC is a cross-project boundary that requires explicit IAM grants for every agent that creates VMs.
+
+### Complete list of service agents that need subnet IAM for Batch workloads
+
+| Agent | Email Pattern | Why |
+|-------|--------------|-----|
+| Google APIs | `{number}@cloudservices.gserviceaccount.com` | Creates MIG for Batch worker VMs |
+| Compute Engine | `service-{number}@compute-system.iam.gserviceaccount.com` | Creates individual VM instances |
+| Cloud Batch | `service-{number}@gcp-sa-cloudbatch.iam.gserviceaccount.com` | Manages Batch job lifecycle |
+| Notebooks | `service-{number}@gcp-sa-notebooks.iam.gserviceaccount.com` | Creates Workbench VM |
