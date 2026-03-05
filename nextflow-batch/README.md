@@ -1,6 +1,6 @@
-# Nextflow Batch — Run Genomics Pipelines on Google Cloud Batch
+# Nextflow Batch — Human RNAseq on Google Cloud Batch + BigQuery Public Data
 
-Run [Nextflow](https://www.nextflow.io/) RNAseq pipelines on [Google Cloud Batch](https://cloud.google.com/batch) using a Vertex AI Workbench as the researcher environment.
+Run [nf-core/rnaseq](https://nf-co.re/rnaseq) on [Google Cloud Batch](https://cloud.google.com/batch), then JOIN your gene expression results with TCGA, GTEx, and GENCODE in BigQuery — all from a single Vertex AI Workbench notebook.
 
 ## Prerequisites
 
@@ -59,7 +59,30 @@ org_policies:
 
 ### Required APIs
 
-Include `batch.googleapis.com` and `notebooks.googleapis.com` in the `services:` list.
+Include these in the `services:` list:
+```yaml
+services:
+  # ... (standard Stellar Engine APIs) ...
+  - batch.googleapis.com
+  - bigquery.googleapis.com
+  - notebooks.googleapis.com
+  - aiplatform.googleapis.com
+```
+
+### Required IAM Roles (for deploy.py to grant to the workload SA)
+
+The researcher's `deploy.py` grants these roles to the workload SA at the project level. The L1 project factory SA needs `roles/resourcemanager.projectIamAdmin` (or delegated grants) on the researcher project for this to work:
+
+```yaml
+# Roles granted by deploy.py to the workload SA:
+# - roles/batch.jobsEditor
+# - roles/batch.agentReporter
+# - roles/bigquery.user         ← queries public datasets + creates jobs
+# - roles/bigquery.dataEditor   ← loads pipeline results into BQ dataset
+# - roles/storage.admin
+# - roles/iam.serviceAccountUser
+# - roles/aiplatform.user       ← Gemini/LLM API calls from notebook
+```
 
 ---
 
@@ -86,12 +109,14 @@ python deploy.py
 
 ## What It Does
 
-1. **Enables workload-specific APIs** (batch, notebooks, compute — most pre-enabled by L1)
+1. **Enables workload-specific APIs** (batch, notebooks, compute, aiplatform — most pre-enabled by L1)
 2. **Adds workload roles to L1 service account** (`batch.jobsEditor`, `batch.agentReporter`, `storage.admin`)
 3. **Overrides org policy** (`compute.requireShieldedVm = false` — required for Batch worker VMs)
 4. **Provisions a Vertex AI Workbench** (n1-standard-4, no public IP, on L0's shared subnet)
-5. **Creates a GCS bucket** for pipeline scratch space
-6. **Writes `nextflow.config`** — pre-configured for google-batch executor with private networking
+5. **Creates a GCS bucket** for pipeline I/O
+6. **Creates a BigQuery dataset** (`rnaseq_results` in US multi-region, co-located with ISB-CGC public datasets)
+7. **Writes `nextflow.config`** — pre-configured for google-batch executor, no hardcoded machine type (Cloud Batch auto-selects)
+8. **Creates `samplesheet.csv`** — GM12878 human test data for nf-core/rnaseq
 
 The workbench uses the L0 Prod spoke shared subnet — all traffic flows through the central hub's NVAs and Cloud NAT. No standalone VPC or NAT is created.
 
@@ -101,22 +126,82 @@ The workbench uses the L0 Prod spoke shared subnet — all traffic flows through
 2. Open a terminal and run:
    ```bash
    cd nextflow-workspace
-   nextflow run nextflow-io/rnaseq-nf -c nextflow.config
+   nextflow run nf-core/rnaseq -r 3.19.0 \
+     --input samplesheet.csv \
+     --outdir gs://<project>-bucket/results \
+     --genome GRCh37 \
+     --pseudo_aligner salmon \
+     --skip_alignment
    ```
 3. Monitor jobs: `gcloud batch jobs list --location=$GCP_REGION`
+4. When complete, open `Explore_BigQuery_Public_Data.ipynb` and run all cells
 
 ## Pipeline Flow
 
 ```
 Workbench (n1-standard-4, private IP)
-    ├── nextflow.config (google-batch executor)
-    ├── Launch: nextflow run nextflow-io/rnaseq-nf
-    │   ├── INDEX → Cloud Batch job (spot VM)
-    │   ├── FASTQC → Cloud Batch job (spot VM)
-    │   ├── QUANT → Cloud Batch job (spot VM)
-    │   └── MULTIQC → Cloud Batch job (spot VM)
-    └── Results → gs://<project>-bucket/scratch/
+    ├── nextflow.config (google-batch executor, no hardcoded machineType)
+    ├── samplesheet.csv (GM12878 human test data)
+    ├── Launch: nextflow run nf-core/rnaseq --genome GRCh37
+    │   ├── PREPARE_GENOME → Cloud Batch (auto-sized VM)
+    │   ├── FASTQC + TRIMGALORE → Cloud Batch (spot VMs)
+    │   ├── SALMON_INDEX → Cloud Batch (auto-sized VM)
+    │   ├── SALMON_QUANT → Cloud Batch (spot VM)
+    │   └── MULTIQC → Cloud Batch (spot VM)
+    ├── Results → gs://<project>-bucket/results/salmon/
+    │   └── salmon.merged.gene_tpm.tsv (57K genes, ENSG IDs)
+    │
+    └── Explore_BigQuery_Public_Data.ipynb
+        ├── 1. Load gene TPM into BigQuery
+        ├── 2. JOIN GENCODE → annotate genes (symbols, types, chromosomes)
+        ├── 3. JOIN TCGA → compare with 11K cancer samples across 33 types
+        ├── 4. JOIN GTEx → compare with 54 normal tissues
+        ├── 5. CORR() → which cancer type does my sample resemble?
+        └── 6. Gemini → AI-powered biological summary
 ```
+
+---
+
+## Explore Results with BigQuery Public Data
+
+After your pipeline completes, open `Explore_BigQuery_Public_Data.ipynb`. The notebook loads your gene expression results into BigQuery and JOINs them with public datasets — no data downloads required:
+
+```
+1. Load gene expression into BigQuery
+   └── salmon.merged.gene_tpm.tsv → rnaseq_results.my_genes (US multi-region)
+
+2. Annotate with GENCODE
+   └── your_genes JOIN isb-cgc-bq.GENCODE.annotation_gtf_hg38_current
+   └── Maps ENSG IDs → gene symbols, types, chromosomal locations
+
+3. Compare with TCGA cancer data (11K samples, 33 cancer types)
+   └── your_genes JOIN isb-cgc-bq.TCGA.RNAseq_hg38_gdc_current
+   └── "Are my top genes also overexpressed in specific cancers?"
+
+4. Compare with GTEx normal tissue (54 tissues)
+   └── your_genes JOIN isb-cgc.GTEx_v7.gene_median_tpm
+   └── "Is my expression abnormal compared to healthy tissue?"
+
+5. Cancer type similarity
+   └── CORR(my_tpm, tcga_avg_tpm) across 20K+ genes
+   └── "Which TCGA cancer type does my sample most resemble?"
+
+6. Ask Gemini to summarize findings
+   └── Vertex AI Gemini SDK → biological pathway analysis
+```
+
+### Summary User Experience
+
+| Step | What Happened | Google Cloud Service |
+|------|--------------|---------------------|
+| 1 | Provisioned researcher environment | **Vertex AI Workbench** (IAP auth, no public IP) |
+| 2 | Ran human RNAseq pipeline | **Cloud Batch** + nf-core/rnaseq (spot VMs, GRCh37) |
+| 3 | Loaded gene expression into BigQuery | **BigQuery** (US multi-region) |
+| 4 | Annotated genes with GENCODE | **BigQuery** JOIN (gene symbols, types, locations) |
+| 5 | Compared with 11K cancer samples | **BigQuery** JOIN with TCGA (33 cancer types) |
+| 6 | Compared with normal tissue | **BigQuery** JOIN with GTEx (54 tissues) |
+| 7 | Found most similar cancer type | **BigQuery** CORR() across 20K genes |
+| 8 | Summarized findings with AI | **Vertex AI** Gemini SDK |
 
 ---
 

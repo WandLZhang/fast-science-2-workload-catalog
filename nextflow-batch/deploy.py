@@ -17,6 +17,7 @@ Requires: GCP_PROJECT_ID, HOST_PROJECT, GCP_REGION env vars (from admin)
 
 import json
 import os
+import subprocess
 import sys
 import time
 
@@ -73,6 +74,7 @@ def execute_enable_apis():
 
         apis = [
             'batch.googleapis.com',
+            'bigquery.googleapis.com',
             'compute.googleapis.com',
             'logging.googleapis.com',
             'iam.googleapis.com',
@@ -80,6 +82,7 @@ def execute_enable_apis():
             'orgpolicy.googleapis.com',
             'notebooks.googleapis.com',
             'storage.googleapis.com',
+            'aiplatform.googleapis.com',
         ]
 
         for api in apis:
@@ -147,8 +150,11 @@ def execute_iam_roles():
             'roles/iam.serviceAccountUser',
             'roles/batch.jobsEditor',
             'roles/batch.agentReporter',
+            'roles/bigquery.user',
+            'roles/bigquery.dataEditor',
             'roles/logging.viewer',
             'roles/storage.admin',
+            'roles/aiplatform.user',
         ]
 
         policy = service.projects().getIamPolicy(
@@ -302,14 +308,13 @@ mkdir -p /home/jupyter/nextflow-workspace
 cd /home/jupyter/nextflow-workspace
 
 cat > nextflow.config << 'EOF'
+// Nextflow configuration for Google Cloud Batch (nf-core/rnaseq)
 workDir = 'gs://{BUCKET_NAME}/scratch'
 process {{
   executor = 'google-batch'
-  container = 'nextflow/rnaseq-nf'
   errorStrategy = 'retry'
-  maxRetries = 5
-  machineType = 'n1-standard-1'
-  disk = '30 GB'
+  maxRetries = 3
+  disk = '100 GB'
 }}
 google {{
   project = '{PROJECT_ID}'
@@ -323,6 +328,15 @@ google {{
   }}
 }}
 EOF
+
+# Create samplesheet with human test data (GM12878 lymphoblastoid cell line)
+cat > samplesheet.csv << 'SAMPLESHEET'
+sample,fastq_1,fastq_2,strandedness
+GM12878_REP1,https://ngi-igenomes.s3.eu-west-1.amazonaws.com/test-data/rnaseq/SRX1603629_T1_1.fastq.gz,https://ngi-igenomes.s3.eu-west-1.amazonaws.com/test-data/rnaseq/SRX1603629_T1_2.fastq.gz,reverse
+SAMPLESHEET
+
+# Download the pre-rendered notebook from GCS (uploaded by deploy.py)
+gcloud storage cp gs://{BUCKET_NAME}/config/Explore_BigQuery_Public_Data.ipynb /home/jupyter/nextflow-workspace/
 
 chown -R jupyter:jupyter /home/jupyter/nextflow-workspace
 '''
@@ -392,6 +406,40 @@ chown -R jupyter:jupyter /home/jupyter/nextflow-workspace
         step_error(str(e))
 
 
+def execute_create_bq_dataset():
+    """Create a BigQuery dataset for pipeline results."""
+    dataset_name = "rnaseq_results"
+    log_msg(f"Creating BigQuery dataset: {PROJECT_ID}.{dataset_name}...")
+
+    try:
+        credentials, project = default()
+        bq_service = discovery.build('bigquery', 'v2', credentials=credentials)
+
+        try:
+            bq_service.datasets().get(
+                projectId=PROJECT_ID, datasetId=dataset_name
+            ).execute()
+            log_msg(f"  Dataset already exists: {dataset_name}", "info")
+        except Exception:
+            bq_service.datasets().insert(
+                projectId=PROJECT_ID,
+                body={
+                    'datasetReference': {
+                        'projectId': PROJECT_ID,
+                        'datasetId': dataset_name,
+                    },
+                    'location': 'US',
+                    'description': 'RNAseq pipeline results — load Salmon quant.sf here to JOIN with TCGA/GTEx public data (US multi-region to co-locate with ISB-CGC public datasets)',
+                }
+            ).execute()
+            log_msg(f"  Created dataset: {PROJECT_ID}.{dataset_name}", "success")
+
+        log_msg(f"  Console: https://console.cloud.google.com/bigquery?project={PROJECT_ID}&d={dataset_name}", "info")
+        step_complete()
+    except Exception as e:
+        step_error(str(e))
+
+
 def execute_create_bucket():
     """Create GCS bucket using google-cloud-storage."""
     log_msg(f"Creating GCS bucket: gs://{BUCKET_NAME}...")
@@ -412,6 +460,134 @@ def execute_create_bucket():
         step_error(str(e))
 
 
+def execute_upload_notebook():
+    """
+    Upload the Explore_BigQuery_Public_Data notebook to GCS.
+
+    Reads the template notebook from the repo, substitutes project-specific
+    placeholders (__PROJECT_ID__, __BUCKET_NAME__, __REGION__), and uploads
+    the rendered notebook to GCS. The workbench startup script downloads it.
+    """
+    log_msg("Uploading notebook to GCS...")
+
+    try:
+        # Find the template notebook relative to this script
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        template_path = os.path.join(script_dir, 'Explore_BigQuery_Public_Data.ipynb')
+
+        if not os.path.exists(template_path):
+            step_error(f"Template notebook not found: {template_path}")
+            return
+
+        log_msg(f"  Reading template: {template_path}")
+        with open(template_path, 'r') as f:
+            notebook_content = f.read()
+
+        # Substitute placeholders with actual project values
+        notebook_content = notebook_content.replace('__PROJECT_ID__', PROJECT_ID)
+        notebook_content = notebook_content.replace('__BUCKET_NAME__', BUCKET_NAME)
+        notebook_content = notebook_content.replace('__REGION__', REGION)
+
+        # Validate the rendered notebook is valid JSON
+        try:
+            json.loads(notebook_content)
+            log_msg("  ✓ Rendered notebook is valid JSON", "success")
+        except json.JSONDecodeError as e:
+            step_error(f"Rendered notebook is invalid JSON: {e}")
+            return
+
+        # Upload to GCS
+        gcs_path = f"config/Explore_BigQuery_Public_Data.ipynb"
+        log_msg(f"  Uploading to gs://{BUCKET_NAME}/{gcs_path}...")
+
+        client = storage.Client(project=PROJECT_ID)
+        bucket = client.bucket(BUCKET_NAME)
+        blob = bucket.blob(gcs_path)
+        blob.upload_from_string(notebook_content, content_type='application/json')
+
+        log_msg(f"  ✓ Uploaded to gs://{BUCKET_NAME}/{gcs_path}", "success")
+        step_complete()
+    except Exception as e:
+        step_error(str(e))
+
+
+def execute_sync_notebook_to_workbench():
+    """
+    Sync the notebook from GCS to an existing workbench instance.
+
+    For new workbenches, the startup script handles this automatically.
+    For existing workbenches (where the startup script already ran), this
+    step SSHes in via IAP tunnel and copies the latest notebook from GCS.
+    This ensures the notebook is always up-to-date, even on re-deploys.
+    """
+    log_msg("Syncing notebook to workbench instance...")
+
+    try:
+        # Check if workbench exists and is ACTIVE
+        credentials, project = default()
+        notebooks_service = discovery.build('notebooks', 'v2', credentials=credentials)
+        instance_name = f"projects/{PROJECT_ID}/locations/{ZONE}/instances/{WORKBENCH_INSTANCE_NAME}"
+
+        try:
+            instance = notebooks_service.projects().locations().instances().get(
+                name=instance_name
+            ).execute()
+            state = instance.get('state', 'UNKNOWN')
+            if state != 'ACTIVE':
+                log_msg(f"  Workbench state is {state}, skipping sync (startup script will handle it)", "info")
+                step_complete()
+                return
+        except Exception:
+            log_msg("  Workbench not found, skipping sync (startup script will handle it on creation)", "info")
+            step_complete()
+            return
+
+        # SSH into the workbench via IAP tunnel and copy notebook from GCS
+        gcs_src = f"gs://{BUCKET_NAME}/config/Explore_BigQuery_Public_Data.ipynb"
+        remote_dest = "/home/jupyter/nextflow-workspace/Explore_BigQuery_Public_Data.ipynb"
+
+        ssh_command = [
+            'gcloud', 'compute', 'ssh', WORKBENCH_INSTANCE_NAME,
+            f'--project={PROJECT_ID}',
+            f'--zone={ZONE}',
+            '--tunnel-through-iap',
+            '--quiet',
+            '--command',
+            f'sudo mkdir -p /home/jupyter/nextflow-workspace && '
+            f'sudo gcloud storage cp {gcs_src} {remote_dest} && '
+            f'sudo chown jupyter:jupyter {remote_dest} && '
+            f'echo "Notebook synced successfully"'
+        ]
+
+        log_msg(f"  SSHing into {WORKBENCH_INSTANCE_NAME} via IAP tunnel...")
+        log_msg(f"  Copying {gcs_src} → {remote_dest}")
+
+        result = subprocess.run(
+            ssh_command,
+            capture_output=True, text=True, timeout=120
+        )
+
+        if result.returncode == 0:
+            log_msg(f"  ✓ Notebook synced to workbench", "success")
+            log_msg(f"  stdout: {result.stdout.strip()}", "info")
+        else:
+            # SSH might fail if IAP is not configured — that's OK, the notebook is on GCS
+            log_msg(f"  ⚠ SSH sync failed (notebook is still available on GCS)", "info")
+            log_msg(f"  stderr: {result.stderr.strip()[:200]}", "info")
+            log_msg(f"  Manual fix: Open workbench terminal and run:", "info")
+            log_msg(f"    gcloud storage cp {gcs_src} {remote_dest}", "info")
+
+        step_complete()
+    except subprocess.TimeoutExpired:
+        log_msg("  ⚠ SSH timed out — notebook is available on GCS for manual copy", "info")
+        log_msg(f"  Manual: gcloud storage cp gs://{BUCKET_NAME}/config/Explore_BigQuery_Public_Data.ipynb /home/jupyter/nextflow-workspace/", "info")
+        step_complete()
+    except Exception as e:
+        log_msg(f"  ⚠ Sync failed: {str(e)[:120]}", "info")
+        log_msg(f"  Notebook available at gs://{BUCKET_NAME}/config/Explore_BigQuery_Public_Data.ipynb", "info")
+        step_complete()
+
+
 def execute_write_config():
     """Write nextflow.config file for Google Cloud Batch."""
     log_msg("Writing nextflow.config...")
@@ -421,16 +597,14 @@ def execute_write_config():
         network = f'projects/{HOST_PROJECT}/global/networks/prod-spoke-0' if HOST_PROJECT else f'projects/{PROJECT_ID}/global/networks/default'
         subnet = f'projects/{HOST_PROJECT}/regions/{REGION}/subnetworks/default-primary-region' if HOST_PROJECT else f'projects/{PROJECT_ID}/regions/{REGION}/subnetworks/default'
 
-        config_content = f"""// Nextflow configuration for Google Cloud Batch
+        config_content = f"""// Nextflow configuration for Google Cloud Batch (nf-core/rnaseq)
 workDir = 'gs://{BUCKET_NAME}/scratch'
 
 process {{
   executor = 'google-batch'
-  container = 'nextflow/rnaseq-nf'
   errorStrategy = 'retry'
-  maxRetries = 5
-  machineType = 'n1-standard-1'
-  disk = '30 GB'
+  maxRetries = 3
+  disk = '100 GB'
 }}
 
 google {{
@@ -490,8 +664,11 @@ if __name__ == '__main__':
         ('create-sa', execute_create_service_account),
         ('iam-roles', execute_iam_roles),
         ('org-policies', execute_configure_org_policies),
-        ('provision-workbench', execute_provision_workbench),
         ('storage-bucket', execute_create_bucket),
+        ('upload-notebook', execute_upload_notebook),
+        ('provision-workbench', execute_provision_workbench),
+        ('sync-notebook', execute_sync_notebook_to_workbench),
+        ('bq-dataset', execute_create_bq_dataset),
         ('write-config', execute_write_config),
     ]
 
