@@ -323,8 +323,8 @@ google {{
     spot = true
     serviceAccountEmail = '{sa_email}'
     usePrivateAddress = true
-    network = 'projects/{HOST_PROJECT}/global/networks/prod-spoke-0'
-    subnetwork = 'projects/{HOST_PROJECT}/regions/{REGION}/subnetworks/default-primary-region'
+    network = 'projects/{HOST_PROJECT}/global/networks/prod'
+    subnetwork = 'projects/{HOST_PROJECT}/regions/{REGION}/subnetworks/prod-default'
   }}
 }}
 EOF
@@ -346,8 +346,8 @@ chown -R jupyter:jupyter /home/jupyter/nextflow-workspace
                 'machineType': 'n1-standard-4',
                 'serviceAccounts': [{'email': sa_email, 'scopes': ['https://www.googleapis.com/auth/cloud-platform']}],
                 'networkInterfaces': [{
-                    'network': f'projects/{HOST_PROJECT}/global/networks/prod-spoke-0' if HOST_PROJECT else f'projects/{PROJECT_ID}/global/networks/default',
-                    'subnet': f'projects/{HOST_PROJECT}/regions/{REGION}/subnetworks/default-primary-region' if HOST_PROJECT else f'projects/{PROJECT_ID}/regions/{REGION}/subnetworks/default',
+                    'network': f'projects/{HOST_PROJECT}/global/networks/prod' if HOST_PROJECT else f'projects/{PROJECT_ID}/global/networks/default',
+                    'subnet': f'projects/{HOST_PROJECT}/regions/{REGION}/subnetworks/prod-default' if HOST_PROJECT else f'projects/{PROJECT_ID}/regions/{REGION}/subnetworks/default',
                     'nicType': 'VIRTIO_NET'
                 }],
                 'disablePublicIp': True,
@@ -594,8 +594,8 @@ def execute_write_config():
 
     try:
         sa_email = f"{SERVICE_ACCOUNT_NAME}@{PROJECT_ID}.iam.gserviceaccount.com"
-        network = f'projects/{HOST_PROJECT}/global/networks/prod-spoke-0' if HOST_PROJECT else f'projects/{PROJECT_ID}/global/networks/default'
-        subnet = f'projects/{HOST_PROJECT}/regions/{REGION}/subnetworks/default-primary-region' if HOST_PROJECT else f'projects/{PROJECT_ID}/regions/{REGION}/subnetworks/default'
+        network = f'projects/{HOST_PROJECT}/global/networks/prod' if HOST_PROJECT else f'projects/{PROJECT_ID}/global/networks/default'
+        subnet = f'projects/{HOST_PROJECT}/regions/{REGION}/subnetworks/prod-default' if HOST_PROJECT else f'projects/{PROJECT_ID}/regions/{REGION}/subnetworks/default'
 
         config_content = f"""// Nextflow configuration for Google Cloud Batch (nf-core/rnaseq)
 workDir = 'gs://{BUCKET_NAME}/scratch'

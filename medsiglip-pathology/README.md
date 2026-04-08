@@ -15,7 +15,7 @@ Your IT admin provides these values from the L0/L1 Terraform deployment:
 | Env Var | What It Is | How Admin Gets It |
 |---------|-----------|-------------------|
 | `GCP_PROJECT_ID` | Your researcher project | L1 project factory output — the YAML filename with prefix (e.g., `wzuniv-pathology-medsiglip`) |
-| `HOST_PROJECT` | Prod spoke Shared VPC host | `cd fast/stages-aw/2-networking-* && terraform output host_project_ids` |
+| `HOST_PROJECT` | Network project from L0 Stage 2 | `from L0 Stage 2 terraform output (e.g. PREFIX-net-prod-0)` |
 | `GCP_REGION` | Region matching L0 subnet | `cd fast/stages-aw/0-bootstrap && terraform output -json \| jq '.regions.value.primary'` |
 | `SERVICE_ACCOUNT_NAME` | SA created by L1 project factory | Look in L1's `data/projects/<name>.yaml` under `service_accounts:` — the key is the SA name (e.g., `pathology-medsiglip-0`) |
 
@@ -30,7 +30,7 @@ service_agent_subnet_iam:
   "us-west1/gpu-west1":                  # GPU subnet
     - notebooks
     - compute
-  "us-central1/default-primary-region":  # Fallback region
+  "us-central1/prod-default":  # Fallback region
     - notebooks
     - compute
 ```
@@ -55,7 +55,7 @@ Include `aiplatform.googleapis.com` and `notebooks.googleapis.com` in the `servi
 ```bash
 # Set the values your admin provided
 export GCP_PROJECT_ID="wzuniv-pathology-medsiglip"     # ← from admin
-export HOST_PROJECT="wzuniv-prod-net-host"             # ← from admin
+export HOST_PROJECT="wzuniv-net-prod-0"             # ← from admin
 export GCP_REGION="us-central1"                        # ← from admin
 export SERVICE_ACCOUNT_NAME="pathology-medsiglip-0"    # ← from L1 YAML (see above)
 
@@ -94,13 +94,13 @@ The workbench uses the L0 Prod spoke shared subnet — all internet traffic flow
                            │ VPC peering
                 ┌──────────▼──────────────────────┐
                 │  L0 Prod Spoke (Shared VPC Host) │
-                │  Subnet: default-primary-region  │
+                │  Subnet: prod-default  │
                 │  Private Google Access: ✓        │
                 │                                  │
                 │   ┌────────────────────────────┐ │
                 │   │ Workbench VM (A100 GPU)     │ │
                 │   │ Private IP only             │ │
-                │   │ NIC → prod-spoke-0 subnet   │ │
+                │   │ NIC → prod subnet   │ │
                 │   └─────────┬──────────────────┘ │
                 │             │                    │
                 │   ┌─────────▼──────────────────┐ │

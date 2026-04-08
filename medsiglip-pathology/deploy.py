@@ -473,11 +473,11 @@ echo "=== Setup complete. Open medsiglip-workspace/ in JupyterLab ==="
                     'acceleratorConfigs': [{'type': 'NVIDIA_TESLA_A100', 'coreCount': '1'}],
                     'serviceAccounts': [{'email': sa_email, 'scopes': ['https://www.googleapis.com/auth/cloud-platform']}],
                     'networkInterfaces': [{
-                        'network': f'projects/{HOST_PROJECT}/global/networks/prod-spoke-0' if HOST_PROJECT else f'projects/{PROJECT_ID}/global/networks/default',
+                        'network': f'projects/{HOST_PROJECT}/global/networks/prod' if HOST_PROJECT else f'projects/{PROJECT_ID}/global/networks/default',
                         'subnet': (
                             f'projects/{HOST_PROJECT}/regions/{candidate_region}/subnetworks/gpu-west1'
                             if HOST_PROJECT and candidate_region == 'us-west1'
-                            else f'projects/{HOST_PROJECT}/regions/{candidate_region}/subnetworks/default-primary-region'
+                            else f'projects/{HOST_PROJECT}/regions/{candidate_region}/subnetworks/prod-default'
                             if HOST_PROJECT
                             else f'projects/{PROJECT_ID}/regions/{candidate_region}/subnetworks/default'
                         ),

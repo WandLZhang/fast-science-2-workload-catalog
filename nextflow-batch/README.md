@@ -15,7 +15,7 @@ Your IT admin provides these values from the L0/L1 Terraform deployment:
 | Env Var | What It Is | How Admin Gets It |
 |---------|-----------|-------------------|
 | `GCP_PROJECT_ID` | Your researcher project | L1 project factory output — the YAML filename with prefix |
-| `HOST_PROJECT` | Prod spoke Shared VPC host | `cd fast/stages-aw/2-networking-* && terraform output host_project_ids` |
+| `HOST_PROJECT` | Network project from L0 Stage 2 | `from L0 Stage 2 terraform output (e.g. PREFIX-net-prod-0)` |
 | `GCP_REGION` | Region matching L0 subnet | `cd fast/stages-aw/0-bootstrap && terraform output -json \| jq '.regions.value.primary'` |
 | `SERVICE_ACCOUNT_NAME` | SA created by L1 project factory | Look in L1's `data/projects/<name>.yaml` under `service_accounts:` — the key is the SA name |
 
@@ -27,7 +27,7 @@ The L1 project factory YAML ([fast-science-1-researcher-lab](https://github.com/
 
 ```yaml
 service_agent_subnet_iam:
-  "us-central1/default-primary-region":
+  "us-central1/prod-default":
     - notebooks      # Workbench VM service agent
     - compute        # Compute Engine service agent
     - cloudbatch     # Cloud Batch service agent — creates worker VMs on the shared subnet
@@ -38,7 +38,7 @@ If the project factory module doesn't recognize `cloudservices` as a type, grant
 >
 > ```yaml
 > network_subnet_users:
->   "us-central1/default-primary-region":
+>   "us-central1/prod-default":
 >     - serviceAccount:<project-number>@cloudservices.gserviceaccount.com
 > ```
 
@@ -91,7 +91,7 @@ The researcher's `deploy.py` grants these roles to the workload SA at the projec
 ```bash
 # Set the values your admin provided
 export GCP_PROJECT_ID="<your-project-id>"          # ← from admin
-export HOST_PROJECT="<prod-spoke-host-project>"    # ← from admin
+export HOST_PROJECT="<prefix>-net-prod-0"    # ← from admin
 export GCP_REGION="us-central1"                    # ← from admin
 export SERVICE_ACCOUNT_NAME="<sa-from-l1-yaml>"    # ← from L1 YAML
 
@@ -237,7 +237,7 @@ gcloud compute networks subnets add-iam-policy-binding <subnet-name> \
 ```bash
 gcloud batch jobs submit test-fix \
   --project=<your-project-id> --location=<region> \
-  --config=- <<< '{"taskGroups":[{"taskSpec":{"runnables":[{"script":{"text":"echo ok"}}],"computeResource":{"cpuMilli":1000,"memoryMib":512}},"taskCount":1}],"allocationPolicy":{"instances":[{"policy":{"machineType":"e2-micro","provisioningModel":"SPOT"}}],"serviceAccount":{"email":"<sa>@<project>.iam.gserviceaccount.com"},"network":{"networkInterfaces":[{"network":"projects/<host>/global/networks/prod-spoke-0","subnetwork":"projects/<host>/regions/<region>/subnetworks/<subnet>","noExternalIpAddress":true}]}},"logsPolicy":{"destination":"CLOUD_LOGGING"}}'
+  --config=- <<< '{"taskGroups":[{"taskSpec":{"runnables":[{"script":{"text":"echo ok"}}],"computeResource":{"cpuMilli":1000,"memoryMib":512}},"taskCount":1}],"allocationPolicy":{"instances":[{"policy":{"machineType":"e2-micro","provisioningModel":"SPOT"}}],"serviceAccount":{"email":"<sa>@<project>.iam.gserviceaccount.com"},"network":{"networkInterfaces":[{"network":"projects/<host>/global/networks/prod","subnetwork":"projects/<host>/regions/<region>/subnetworks/<subnet>","noExternalIpAddress":true}]}},"logsPolicy":{"destination":"CLOUD_LOGGING"}}'
 ```
 
 ### Why this doesn't happen outside Shared VPC
