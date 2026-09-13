@@ -41,7 +41,7 @@ Each workload's `deploy.py` handles:
 ```mermaid
 graph TB
     subgraph L0["L0 — Foundation (Central IT)"]
-        NET["Hub VPC + NVAs + Cloud NAT"]
+        NET["NCC Hub + Spoke VPCs<br/>Cloud NAT per spoke"]
         SPOKE["Prod Spoke (Shared VPC Host)"]
         SEC["KMS + Audit Logging"]
     end

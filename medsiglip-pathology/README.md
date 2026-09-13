@@ -14,7 +14,7 @@ Your IT admin provides these values from the L0/L1 Terraform deployment:
 
 | Env Var | What It Is | How Admin Gets It |
 |---------|-----------|-------------------|
-| `GCP_PROJECT_ID` | Your researcher project | L1 project factory output — the YAML filename with prefix (e.g., `wzuniv-pathology-medsiglip`) |
+| `GCP_PROJECT_ID` | Your researcher project | L1 project factory output — the YAML filename with prefix (e.g., `<prefix>-pathology-medsiglip`) |
 | `HOST_PROJECT` | Network project from L0 Stage 2 | `from L0 Stage 2 terraform output (e.g. PREFIX-net-prod-0)` |
 | `GCP_REGION` | Region matching L0 subnet | `cd fast/stages-aw/0-bootstrap && terraform output -json \| jq '.regions.value.primary'` |
 | `SERVICE_ACCOUNT_NAME` | SA created by L1 project factory | Look in L1's `data/projects/<name>.yaml` under `service_accounts:` — the key is the SA name (e.g., `pathology-medsiglip-0`) |
@@ -54,8 +54,8 @@ Include `aiplatform.googleapis.com` and `notebooks.googleapis.com` in the `servi
 
 ```bash
 # Set the values your admin provided
-export GCP_PROJECT_ID="wzuniv-pathology-medsiglip"     # ← from admin
-export HOST_PROJECT="wzuniv-net-prod-0"             # ← from admin
+export GCP_PROJECT_ID="<prefix>-pathology-medsiglip"   # ← from admin
+export HOST_PROJECT="<prefix>-net-prod-0"              # ← from admin
 export GCP_REGION="us-central1"                        # ← from admin
 export SERVICE_ACCOUNT_NAME="pathology-medsiglip-0"    # ← from L1 YAML (see above)
 
@@ -79,36 +79,36 @@ python deploy.py
 4. **Provisions a Vertex AI Workbench** (A100 GPU, no public IP, on L0's shared subnet)
 5. **Creates a GCS bucket** for pipeline artifacts
 
-The workbench uses the L0 Prod spoke shared subnet — all internet traffic flows through the central hub's NVAs and Cloud NAT. No standalone VPC or NAT is created.
+The workbench uses the L0 Prod spoke shared subnet. That spoke runs its own Cloud NAT, so egress goes straight out. No standalone VPC or NAT is created.
 
 ## Networking
 
 ```
                         INTERNET
-                           │
-                ┌──────────▼──────────┐
-                │   L0 Hub VPC        │
-                │   Cloud NAT + NVAs  │
-                │   (egress control)  │
-                └──────────┬──────────┘
-                           │ VPC peering
-                ┌──────────▼──────────────────────┐
+                           ▲
+                           │ Cloud NAT (per spoke)
+                ┌──────────┴───────────────────────┐
                 │  L0 Prod Spoke (Shared VPC Host) │
-                │  Subnet: prod-default  │
+                │  Subnet: prod-default            │
                 │  Private Google Access: ✓        │
                 │                                  │
                 │   ┌────────────────────────────┐ │
-                │   │ Workbench VM (A100 GPU)     │ │
-                │   │ Private IP only             │ │
-                │   │ NIC → prod subnet   │ │
+                │   │ Workbench VM (A100 GPU)    │ │
+                │   │ Private IP only            │ │
+                │   │ NIC → prod subnet          │ │
                 │   └─────────┬──────────────────┘ │
                 │             │                    │
                 │   ┌─────────▼──────────────────┐ │
-                │   │ GCS Bucket (via PGA)        │ │
+                │   │ GCS Bucket (via PGA)       │ │
                 │   └────────────────────────────┘ │
-                └──────────────────────────────────┘
+                └──────────────┬───────────────────┘
+                               │ NCC spoke
+                     ┌─────────▼─────────┐
+                     │  NCC Hub          │
+                     │  route exchange   │
+                     └───────────────────┘
 
-Outbound (pip, HuggingFace): VM → Spoke → Hub → NVA → Cloud NAT → Internet
+Outbound (pip, HuggingFace): VM → Spoke Cloud NAT → Internet
 Google APIs (GCS, Vertex AI): VM → Private Google Access → Google backbone
 ```
 

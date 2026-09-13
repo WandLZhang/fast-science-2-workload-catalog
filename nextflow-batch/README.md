@@ -118,7 +118,7 @@ python deploy.py
 7. **Writes `nextflow.config`** — pre-configured for google-batch executor, no hardcoded machine type (Cloud Batch auto-selects)
 8. **Creates `samplesheet.csv`** — GM12878 human test data for nf-core/rnaseq
 
-The workbench uses the L0 Prod spoke shared subnet — all traffic flows through the central hub's NVAs and Cloud NAT. No standalone VPC or NAT is created.
+The workbench uses the L0 Prod spoke shared subnet. That spoke runs its own Cloud NAT, so egress goes straight out. No standalone VPC or NAT is created.
 
 ## After Deployment
 
