@@ -38,6 +38,10 @@ SERVICE_ACCOUNT_NAME = os.environ.get("SERVICE_ACCOUNT_NAME", "pathology-medsigl
 
 # L0 networking — use the Prod spoke shared subnet (set by Central IT)
 HOST_PROJECT = os.environ.get("HOST_PROJECT", "")
+# Shared VPC network and subnet in HOST_PROJECT. The landing zone's NCC
+# dataset names them prod-0 and prod-default.
+HOST_NETWORK = os.environ.get("HOST_NETWORK", "prod")
+HOST_SUBNET = os.environ.get("HOST_SUBNET", "prod-default")
 REGION = os.environ.get("GCP_REGION", "us-central1")
 
 # Zone fallback list for A100 — tries us-central1 first, then us-west1
@@ -473,11 +477,11 @@ echo "=== Setup complete. Open medsiglip-workspace/ in JupyterLab ==="
                     'acceleratorConfigs': [{'type': 'NVIDIA_TESLA_A100', 'coreCount': '1'}],
                     'serviceAccounts': [{'email': sa_email, 'scopes': ['https://www.googleapis.com/auth/cloud-platform']}],
                     'networkInterfaces': [{
-                        'network': f'projects/{HOST_PROJECT}/global/networks/prod' if HOST_PROJECT else f'projects/{PROJECT_ID}/global/networks/default',
+                        'network': f'projects/{HOST_PROJECT}/global/networks/{HOST_NETWORK}' if HOST_PROJECT else f'projects/{PROJECT_ID}/global/networks/default',
                         'subnet': (
                             f'projects/{HOST_PROJECT}/regions/{candidate_region}/subnetworks/gpu-west1'
                             if HOST_PROJECT and candidate_region == 'us-west1'
-                            else f'projects/{HOST_PROJECT}/regions/{candidate_region}/subnetworks/prod-default'
+                            else f'projects/{HOST_PROJECT}/regions/{candidate_region}/subnetworks/{HOST_SUBNET}'
                             if HOST_PROJECT
                             else f'projects/{PROJECT_ID}/regions/{candidate_region}/subnetworks/default'
                         ),

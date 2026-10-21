@@ -40,6 +40,10 @@ SERVICE_ACCOUNT_NAME = os.environ.get("SERVICE_ACCOUNT_NAME", "nextflow-pipeline
 
 # L0 networking — use the Prod spoke shared subnet (set by Central IT)
 HOST_PROJECT = os.environ.get("HOST_PROJECT", "")
+# Shared VPC network and subnet in HOST_PROJECT. The landing zone's NCC
+# dataset names them prod-0 and prod-default.
+HOST_NETWORK = os.environ.get("HOST_NETWORK", "prod")
+HOST_SUBNET = os.environ.get("HOST_SUBNET", "prod-default")
 REGION = os.environ.get("GCP_REGION", "us-central1")
 ZONE = f"{REGION}-a"
 WORKBENCH_INSTANCE_NAME = os.environ.get("WORKBENCH_INSTANCE_NAME", "nextflow-researcher-workbench")
@@ -323,8 +327,8 @@ google {{
     spot = true
     serviceAccountEmail = '{sa_email}'
     usePrivateAddress = true
-    network = 'projects/{HOST_PROJECT}/global/networks/prod'
-    subnetwork = 'projects/{HOST_PROJECT}/regions/{REGION}/subnetworks/prod-default'
+    network = 'projects/{HOST_PROJECT}/global/networks/{HOST_NETWORK}'
+    subnetwork = 'projects/{HOST_PROJECT}/regions/{REGION}/subnetworks/{HOST_SUBNET}'
   }}
 }}
 EOF
@@ -346,8 +350,8 @@ chown -R jupyter:jupyter /home/jupyter/nextflow-workspace
                 'machineType': 'n1-standard-4',
                 'serviceAccounts': [{'email': sa_email, 'scopes': ['https://www.googleapis.com/auth/cloud-platform']}],
                 'networkInterfaces': [{
-                    'network': f'projects/{HOST_PROJECT}/global/networks/prod' if HOST_PROJECT else f'projects/{PROJECT_ID}/global/networks/default',
-                    'subnet': f'projects/{HOST_PROJECT}/regions/{REGION}/subnetworks/prod-default' if HOST_PROJECT else f'projects/{PROJECT_ID}/regions/{REGION}/subnetworks/default',
+                    'network': f'projects/{HOST_PROJECT}/global/networks/{HOST_NETWORK}' if HOST_PROJECT else f'projects/{PROJECT_ID}/global/networks/default',
+                    'subnet': f'projects/{HOST_PROJECT}/regions/{REGION}/subnetworks/{HOST_SUBNET}' if HOST_PROJECT else f'projects/{PROJECT_ID}/regions/{REGION}/subnetworks/default',
                     'nicType': 'VIRTIO_NET'
                 }],
                 'disablePublicIp': True,
@@ -594,8 +598,8 @@ def execute_write_config():
 
     try:
         sa_email = f"{SERVICE_ACCOUNT_NAME}@{PROJECT_ID}.iam.gserviceaccount.com"
-        network = f'projects/{HOST_PROJECT}/global/networks/prod' if HOST_PROJECT else f'projects/{PROJECT_ID}/global/networks/default'
-        subnet = f'projects/{HOST_PROJECT}/regions/{REGION}/subnetworks/prod-default' if HOST_PROJECT else f'projects/{PROJECT_ID}/regions/{REGION}/subnetworks/default'
+        network = f'projects/{HOST_PROJECT}/global/networks/{HOST_NETWORK}' if HOST_PROJECT else f'projects/{PROJECT_ID}/global/networks/default'
+        subnet = f'projects/{HOST_PROJECT}/regions/{REGION}/subnetworks/{HOST_SUBNET}' if HOST_PROJECT else f'projects/{PROJECT_ID}/regions/{REGION}/subnetworks/default'
 
         config_content = f"""// Nextflow configuration for Google Cloud Batch (nf-core/rnaseq)
 workDir = 'gs://{BUCKET_NAME}/scratch'
