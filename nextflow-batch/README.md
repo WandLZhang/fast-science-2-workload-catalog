@@ -62,7 +62,7 @@ org_policies:
 Include these in the `services:` list:
 ```yaml
 services:
-  # ... (standard Stellar Engine APIs) ...
+  # ... (standard landing-zone APIs) ...
   - batch.googleapis.com
   - bigquery.googleapis.com
   - notebooks.googleapis.com
