@@ -21,7 +21,9 @@ A catalog of science workloads that researchers deploy in GCP projects provision
 2. Set your environment variables:
    ```bash
    export GCP_PROJECT_ID="<prefix>-dept-researcher"   # from L1
-   export HOST_PROJECT="<prefix>-prod-net-host"       # from L0 Stage 2
+   export HOST_PROJECT="<prefix>-prod-net-spoke-0"    # from L0 Stage 2 (NCC, the default)
+   export HOST_NETWORK="prod-0"                       # NCC default network name
+   # NVA stages (fast/stages-aw/2-networking-*): HOST_PROJECT="<prefix>-prod-net-host", HOST_NETWORK="prod-spoke-0"
    export GCP_REGION="us-central1"                    # from L0
    export SERVICE_ACCOUNT_NAME="<sa-from-l1-yaml>"    # from L1 YAML
    ```
