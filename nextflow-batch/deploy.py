@@ -42,7 +42,7 @@ SERVICE_ACCOUNT_NAME = os.environ.get("SERVICE_ACCOUNT_NAME", "nextflow-pipeline
 HOST_PROJECT = os.environ.get("HOST_PROJECT", "")
 # Shared VPC network and subnet in HOST_PROJECT. The landing zone's NCC
 # dataset names them prod-0 and prod-default.
-HOST_NETWORK = os.environ.get("HOST_NETWORK", "prod")
+HOST_NETWORK = os.environ.get("HOST_NETWORK", "prod-0")
 HOST_SUBNET = os.environ.get("HOST_SUBNET", "prod-default")
 REGION = os.environ.get("GCP_REGION", "us-central1")
 ZONE = f"{REGION}-a"
